@@ -20,8 +20,13 @@ ditto "$VST3" "$WORK/root/Killroom.vst3"
 
 # By default the macOS installer "relocates" a bundle to wherever it finds another copy
 # with the same ID (a build folder, an old download...). Always install to the VST3 folder.
+# (pkgbuild may not list .vst3 bundles at all, in which case there's nothing to turn off.)
 pkgbuild --analyze --root "$WORK/root" "$WORK/components.plist"
-/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$WORK/components.plist"
+i=0
+while /usr/libexec/PlistBuddy -c "Print :$i" "$WORK/components.plist" >/dev/null 2>&1; do
+    /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" "$WORK/components.plist"
+    i=$((i + 1))
+done
 
 pkgbuild --root "$WORK/root" \
          --component-plist "$WORK/components.plist" \
