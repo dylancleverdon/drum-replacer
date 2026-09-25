@@ -1,0 +1,180 @@
+name: Build
+
+# Every push and pull request builds and tests the plugin on macOS and Windows.
+# A push to the default branch also publishes a GitHub release, which is what the
+# plugin's Update button and the install scripts download.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  # Never cancel a run on the default branch half way through publishing a release.
+  cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+      label: ${{ steps.pick.outputs.label }}
+      release: ${{ steps.pick.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pick the next version
+        id: pick
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          base="$(tr -d '[:space:]' < VERSION)"
+          last="$(git tag -l "v$base.*" | sed "s/^v$base\.//" | grep -E '^[0-9]+$' | sort -n | tail -n 1 || true)"
+          next=$(( ${last:--1} + 1 ))
+          version="$base.$next"
+
+          release=false
+          if [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ] && { [ "$GITHUB_EVENT_NAME" = push ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; }; then
+            release=true
+          fi
+
+          if [ "$release" = true ]; then label="$version"; else label="$version-dev+${GITHUB_SHA::7}"; fi
+
+          {
+            echo "version=$version"
+            echo "label=$label"
+            echo "release=$release"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building $label (release: $release)" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: ${{ matrix.name }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-14
+            asset: Killroom-macOS.zip
+            configure: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          - name: Windows
+            os: windows-2022
+            asset: Killroom-Windows.zip
+            configure: -G "Visual Studio 17 2022" -A x64
+    env:
+      VST3: build/Killroom_artefacts/Release/VST3/Killroom.vst3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S . -B build ${{ matrix.configure }}
+          -DCMAKE_BUILD_TYPE=Release
+          -DKILLROOM_VERSION=${{ needs.version.outputs.version }}
+          -DKILLROOM_VERSION_LABEL=${{ needs.version.outputs.label }}
+          -DKILLROOM_GITHUB_REPO=${{ github.repository }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: DSP tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Sign (ad-hoc)
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --deep --sign - "$VST3"
+          codesign --verify --deep --strict --verbose=2 "$VST3"
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent "$VST3" ${{ matrix.asset }}
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path $env:VST3 -DestinationPath ${{ matrix.asset }}
+
+      - name: Installer tests (macOS)
+        if: runner.os == 'macOS'
+        run: bash tests/test-installer-mac.sh ${{ matrix.asset }}
+
+      - name: Installer tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\test-installer-windows.ps1 ${{ matrix.asset }}
+
+      - name: Validate with pluginval
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            curl -fsSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+            unzip -q pluginval.zip
+            PLUGINVAL=pluginval.app/Contents/MacOS/pluginval
+            PLUGIN="$PWD/$VST3"
+          else
+            curl -fsSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip
+            unzip -q pluginval.zip
+            PLUGINVAL=./pluginval.exe
+            PLUGIN="$(cygpath -w "$PWD/$VST3")"
+          fi
+          "$PLUGINVAL" --strictness-level 10 --validate-in-process --timeout-ms 600000 --validate "$PLUGIN"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: [version, build]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          previous="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+          {
+            echo "## Changes"
+            if [ -n "$previous" ]; then
+              git log --no-merges --pretty='- %s' "$previous..HEAD"
+            else
+              git log --no-merges --pretty='- %s' -n 30
+            fi
+            echo
+            echo "## Install or update"
+            echo "Click **Update** in the plugin window, or run the installer (the same command installs and updates):"
+            echo
+            echo "- macOS (Terminal): \`curl -fsSL https://raw.githubusercontent.com/$REPO/HEAD/scripts/install-mac.sh | bash\`"
+            echo "- Windows (PowerShell): \`irm https://raw.githubusercontent.com/$REPO/HEAD/scripts/install-windows.ps1 | iex\`"
+            echo
+            echo "Restart Ableton Live afterwards."
+          } > notes.md
+
+          gh release create "v$VERSION" dist/Killroom-macOS.zip dist/Killroom-Windows.zip \
+            --title "Killroom $VERSION" --notes-file notes.md --target "$GITHUB_SHA"
