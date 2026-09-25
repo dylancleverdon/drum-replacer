@@ -11,7 +11,8 @@ merge to the default branch ships to them. Keep it working and keep saved Live s
 - `Source/PluginProcessor.*`, `Source/PluginEditor.*`, `Source/Ui.*`: the JUCE wrapper, editor, look and feel, and scrolling display.
 - `Source/UpdateService.*`: checks GitHub releases and runs the installer script to update in place.
 - `scripts/install-mac.sh`, `scripts/install-windows.ps1`: install/update scripts. They're embedded in the plugin as BinaryData and also run by users directly.
-- `tests/DspTests.cpp` (behaviour of the DSP), `tests/UpdateTests.cpp` (version comparison, embedded installers), `tests/test-installer-*` (end-to-end installer tests, run in CI on real macOS and Windows).
+- `installer/mac/build-pkg.sh`, `installer/windows/Killroom.iss`: the double-click installers (`Killroom-macOS.pkg`, `Killroom-Windows-Setup.exe`) that the README's download links point to. They install to the same folders as the scripts: per-user on macOS, so the Update button needs no admin rights.
+- `tests/DspTests.cpp` (behaviour of the DSP), `tests/UpdateTests.cpp` (version comparison, embedded installers), `tests/test-installer-*`, `tests/test-pkg-mac.sh`, `tests/test-setup-windows.ps1` (end-to-end installer tests, run in CI on real macOS and Windows).
 - `tools/Snapshot.cpp`: renders the editor to a PNG so UI changes can be checked without a DAW.
 - `.github/workflows/build.yml`: builds, tests, validates with pluginval, and releases.
 
@@ -22,7 +23,7 @@ Changing any of these breaks saved Live sets or the updater for people already r
 - `PLUGIN_MANUFACTURER_CODE Dcln`, `PLUGIN_CODE Kilr`, `PRODUCT_NAME "Killroom"` and `BUNDLE_ID` in `CMakeLists.txt`.
 - Parameter IDs in `Source/Parameters.h`. Don't rename or remove them. To add a parameter, give it a new ID and a version hint above 1. Changing a parameter's range changes what saved automation means.
 - The state format: `setStateInformation` has to keep loading states saved by older versions.
-- Release asset names `Killroom-macOS.zip` and `Killroom-Windows.zip` (each containing `Killroom.vst3` at the top level), the `vX.Y.Z` tag format, and the `KILLROOM_INSTALL_OK` last line the installers print. Older plugins in the wild depend on all of these.
+- Release asset names `Killroom-macOS.zip` and `Killroom-Windows.zip` (each containing `Killroom.vst3` at the top level) used by the updater, `Killroom-macOS.pkg` and `Killroom-Windows-Setup.exe` used by the README's download links, the Inno Setup `AppId`, the `vX.Y.Z` tag format, and the `KILLROOM_INSTALL_OK` last line the installers print. Older plugins in the wild depend on all of these.
 - The installer CLI flags (`--dest --tag --log` and `-Dest -Tag`), which older plugins pass.
 
 ## Build and test (Linux works fine for development)

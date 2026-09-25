@@ -66,10 +66,12 @@ jobs:
           - name: macOS
             os: macos-14
             asset: Killroom-macOS.zip
+            installer: Killroom-macOS.pkg
             configure: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
           - name: Windows
             os: windows-2022
             asset: Killroom-Windows.zip
+            installer: Killroom-Windows-Setup.exe
             configure: -G "Visual Studio 17 2022" -A x64
     env:
       VST3: build/Killroom_artefacts/Release/VST3/Killroom.vst3
@@ -106,14 +108,33 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path $env:VST3 -DestinationPath ${{ matrix.asset }}
 
+      - name: Build installer (macOS)
+        if: runner.os == 'macOS'
+        run: bash installer/mac/build-pkg.sh "$VST3" ${{ needs.version.outputs.version }} ${{ matrix.installer }}
+
+      - name: Build installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          & $iscc /Qp "/DAppVersion=${{ needs.version.outputs.version }}" "/DSourceDir=$((Resolve-Path $env:VST3).Path)" "/O$PWD" installer\windows\Killroom.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Installer tests (macOS)
         if: runner.os == 'macOS'
-        run: bash tests/test-installer-mac.sh ${{ matrix.asset }}
+        run: |
+          bash tests/test-installer-mac.sh ${{ matrix.asset }}
+          bash tests/test-pkg-mac.sh ${{ matrix.installer }} ${{ matrix.asset }}
 
       - name: Installer tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\test-installer-windows.ps1 ${{ matrix.asset }}
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\test-installer-windows.ps1 ${{ matrix.asset }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests\test-setup-windows.ps1 ${{ matrix.installer }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Validate with pluginval
         shell: bash
@@ -133,8 +154,10 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
+          name: Killroom-${{ matrix.name }}
+          path: |
+            ${{ matrix.asset }}
+            ${{ matrix.installer }}
           if-no-files-found: error
 
   release:
@@ -159,7 +182,19 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           previous="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+          download="https://github.com/$REPO/releases/download/v$VERSION"
           {
+            echo "## Download"
+            echo
+            echo "- **macOS** (Apple Silicon and Intel): [Killroom-macOS.pkg]($download/Killroom-macOS.pkg)"
+            echo "- **Windows** (64-bit): [Killroom-Windows-Setup.exe]($download/Killroom-Windows-Setup.exe)"
+            echo
+            echo "Already have Killroom? Click **Update** in the plugin window instead, then restart Live."
+            echo
+            echo "The installers aren't signed with an Apple or Microsoft certificate, so the first time:"
+            echo "- macOS says it can't verify the installer. Open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**."
+            echo "- Windows SmartScreen may say it protected your PC. Click **More info → Run anyway**."
+            echo
             echo "## Changes"
             if [ -n "$previous" ]; then
               git log --no-merges --pretty='- %s' "$previous..HEAD"
@@ -167,8 +202,7 @@ jobs:
               git log --no-merges --pretty='- %s' -n 30
             fi
             echo
-            echo "## Install or update"
-            echo "Click **Update** in the plugin window, or run the installer (the same command installs and updates):"
+            echo "## Install or update from the command line"
             echo
             echo "- macOS (Terminal): \`curl -fsSL https://raw.githubusercontent.com/$REPO/HEAD/scripts/install-mac.sh | bash\`"
             echo "- Windows (PowerShell): \`irm https://raw.githubusercontent.com/$REPO/HEAD/scripts/install-windows.ps1 | iex\`"
@@ -176,5 +210,7 @@ jobs:
             echo "Restart Ableton Live afterwards."
           } > notes.md
 
-          gh release create "v$VERSION" dist/Killroom-macOS.zip dist/Killroom-Windows.zip \
+          gh release create "v$VERSION" \
+            dist/Killroom-macOS.pkg dist/Killroom-Windows-Setup.exe \
+            dist/Killroom-macOS.zip dist/Killroom-Windows.zip \
             --title "Killroom $VERSION" --notes-file notes.md --target "$GITHUB_SHA"

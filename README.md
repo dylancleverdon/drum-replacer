@@ -25,38 +25,48 @@ The display shows input (grey) and output (blue) levels, the threshold, the tota
 
 ## Install
 
-**macOS**: open Terminal and run:
+Download the installer for your computer:
+
+- **macOS** (Apple Silicon and Intel): [Killroom-macOS.pkg](https://github.com/dylancleverdon/drum-replacer/releases/latest/download/Killroom-macOS.pkg)
+- **Windows** (64-bit): [Killroom-Windows-Setup.exe](https://github.com/dylancleverdon/drum-replacer/releases/latest/download/Killroom-Windows-Setup.exe)
+
+These links always get the newest version. All releases are on the [releases page](https://github.com/dylancleverdon/drum-replacer/releases).
+
+The installers aren't signed with an Apple or Microsoft developer certificate, so the first time you open one:
+
+- **macOS** says it can't verify the installer. Click **Done**, open **System Settings → Privacy & Security**, scroll down to the message about Killroom-macOS.pkg and click **Open Anyway**. The plugin installs to `~/Library/Audio/Plug-Ins/VST3`.
+- **Windows** SmartScreen may say "Windows protected your PC". Click **More info → Run anyway**. The plugin installs to `C:\Program Files\Common Files\VST3`.
+
+Then restart Live. Killroom shows up under **Plug-Ins → VST3 → dylancleverdon**. If it doesn't, make sure
+*Preferences → Plug-Ins → Use VST3 Plug-In System Folders* is on.
+
+### Or install from the command line
+
+This avoids the warnings above. On **macOS**, run this in Terminal:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/dylancleverdon/drum-replacer/HEAD/scripts/install-mac.sh | bash
 ```
 
-This installs to `~/Library/Audio/Plug-Ins/VST3`. You don't need an admin password.
-
-**Windows**: open PowerShell and run:
+On **Windows**, run this in PowerShell. It asks for admin rights:
 
 ```powershell
 irm https://raw.githubusercontent.com/dylancleverdon/drum-replacer/HEAD/scripts/install-windows.ps1 | iex
 ```
-
-This installs to `C:\Program Files\Common Files\VST3` and asks for admin rights.
-
-Then restart Live. Killroom shows up under **Plug-Ins → VST3 → dylancleverdon**. If it doesn't, make sure
-*Preferences → Plug-Ins → Use VST3 Plug-In System Folders* is on.
 
 ## Updating
 
 You don't need to reinstall anything.
 
 - **From the plugin:** the top right of the window shows the version you're running and checks GitHub for a newer one. When there is one, click **Update to vX.Y.Z**, then restart Live. On Windows, an installer window opens and asks for admin rights.
-- **From the command line:** run the same install command again.
+- **Or** run the installer again: download it from the link above, or rerun the command-line install.
 
 The copy of Killroom that Live already has loaded keeps running until you restart. Your Live sets keep their
 Killroom settings across updates.
 
 ## How changes become updates
 
-1. Make a change (or ask Claude to make one) and get it onto the `main` branch.
+1. Make a change (or ask Claude to make one) and get it onto the repo's default branch.
 2. GitHub Actions ([.github/workflows/build.yml](.github/workflows/build.yml)) builds macOS and Windows versions, runs the tests,
    validates the plugin with [pluginval](https://github.com/Tracktion/pluginval) and publishes a release
    named `vX.Y.Z` with the patch number counting up automatically. This takes about 10 minutes.
