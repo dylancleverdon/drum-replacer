@@ -239,6 +239,12 @@ void UpdateService::doCheck()
     setStatus (compareVersions (latest, currentVersion()) > 0 ? State::available : State::upToDate, latest);
 }
 
+bool UpdateService::writeScript (const juce::File& file, const juce::String& script)
+{
+    // Byte for byte: File::replaceWithText would turn line endings into CRLF, which breaks bash.
+    return file.replaceWithData (script.toRawUTF8(), script.getNumBytesAsUTF8());
+}
+
 juce::String UpdateService::installerScript (const juce::String& tag)
 {
     // Prefer the installer from the release being installed, so fixes to the installer
@@ -284,7 +290,7 @@ void UpdateService::doInstall()
     workDir.createDirectory();
     const auto scriptFile = workDir.getChildFile (installerName);
 
-    if (script.isEmpty() || ! scriptFile.replaceWithText (script))
+    if (script.isEmpty() || ! writeScript (scriptFile, script))
     {
         setStatus (State::failed, latest, "Couldn't prepare the installer");
         return;

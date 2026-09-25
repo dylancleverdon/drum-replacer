@@ -6,6 +6,7 @@
 #include "../Source/UpdateService.h"
 
 #include <cstdio>
+#include <cstring>
 
 namespace
 {
@@ -64,6 +65,17 @@ int main()
     const auto windows = resource ("install-windows.ps1");
     check (mac.startsWith ("#!/bin/bash") && mac.contains ("KILLROOM_INSTALL_OK"), "macOS installer is embedded");
     check (windows.contains ("param(") && windows.contains ("KILLROOM_INSTALL_OK"), "Windows installer is embedded");
+    check (! mac.containsChar ('\r'), "embedded macOS installer has LF line endings");
+
+    std::printf ("Writing the installer to disk\n");
+    const auto file = juce::File::createTempFile (".sh");
+    check (UpdateService::writeScript (file, mac), "script written");
+    juce::MemoryBlock written;
+    file.loadFileAsData (written);
+    check (written.getSize() == mac.getNumBytesAsUTF8()
+               && std::memcmp (written.getData(), mac.toRawUTF8(), written.getSize()) == 0,
+           "written byte for byte (no CRLF conversion)");
+    file.deleteFile();
 
     std::printf (failures == 0 ? "\nAll update tests passed\n" : "\n%d update check(s) FAILED\n", failures);
     return failures == 0 ? 0 : 1;

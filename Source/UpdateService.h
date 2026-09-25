@@ -49,6 +49,7 @@ public:
     static juce::String currentVersion();
     static int compareVersions (const juce::String& a, const juce::String& b);
     static juce::File findPluginBundle();
+    static bool writeScript (const juce::File& file, const juce::String& script);
 
 private:
     enum class Task { none, check, install };

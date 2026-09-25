@@ -1,0 +1,2 @@
+# The macOS installer is run by bash and must keep LF line endings on every platform.
+*.sh text eol=lf
